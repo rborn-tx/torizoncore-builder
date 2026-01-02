@@ -9,24 +9,41 @@ import subprocess
 import shlex
 
 from gi.repository import Gio
+from tcbuilder.backend.kernel import get_kernel_subdir
 
-from tcbuilder.backend import ostree
-from tcbuilder.errors import TorizonCoreBuilderError
+SPLASH_INITRAMFS = "initramfs.splash"
+INITRAMFS_FILENAME = "initramfs.img"
 
 log = logging.getLogger("torizon." + __name__)
 
 
-def create_splash_initramfs(work_dir, image, src_ostree_archive_dir):
-    """Create a initramfs with a splash screen and append it to the current initramfs"""
+def get_initramfs_subdir(storage_dir):
+    """Get the versioned initramfs directory.
 
-    splash_initramfs = "initramfs.splash"
+    In an OSTree deployment the initramfs is located in the same directory tree
+    as the kernel, so we just return the kernel location.
+    """
+
+    return get_kernel_subdir(storage_dir)
+
+
+def get_splash_changes_dir(storage_dir):
+    """Returns the directory that contains external splash screen related changes."""
+
+    return os.path.join(storage_dir, "splash")
+
+
+def merge_splash_initramfs(work_dir, image, src_initramfs, storage_dir):
+    """Create a initramfs with a splash screen and append it to a copy of src_initramfs
+
+    The final initramfs binary will be created inside work_dir, following the
+    directory tree given by get_initramfs_subdir()
+    """
+
     splash_initramfs_dir = "usr/share/plymouth/themes/spinner/"
     rel_splash_initramfs_dir = os.path.join(work_dir, splash_initramfs_dir)  # relative to work_dir
 
-    if os.path.exists(rel_splash_initramfs_dir):
-        shutil.rmtree(rel_splash_initramfs_dir)
-
-    os.makedirs(rel_splash_initramfs_dir)
+    os.makedirs(rel_splash_initramfs_dir, exist_ok=True)
     shutil.copy(image, os.path.join(rel_splash_initramfs_dir, "watermark.png"))
 
     # Currently there is no official library for python 3+ to create
@@ -35,32 +52,24 @@ def create_splash_initramfs(work_dir, image, src_ostree_archive_dir):
     # create splash image only initramfs
     create_initramfs_cmd = "echo {0} | cpio -H newc -D {1} -o | gzip > {2}".format(
         shlex.quote(os.path.join(splash_initramfs_dir, "watermark.png")),
-        shlex.quote(work_dir), shlex.quote(os.path.join(work_dir, splash_initramfs)))
+        shlex.quote(work_dir), shlex.quote(os.path.join(work_dir, SPLASH_INITRAMFS)))
     subprocess.check_output(create_initramfs_cmd, shell=True, stderr=subprocess.STDOUT)
 
-    # get path of initramfs of current deployment inside sysroot
-    repo = ostree.open_ostree(src_ostree_archive_dir)
-    kernel_version = ostree.get_kernel_version(repo, ostree.OSTREE_BASE_REF)
+    # Create final initramfs in ${work_dir}/${dir_tree}/${INITRAMFS_FILENAME}
+    dir_tree = get_initramfs_subdir(storage_dir)
+    os.makedirs(os.path.join(work_dir, dir_tree), exist_ok=True)
 
-    # implement cat `ostree cat ref /usr/lib/modules/${kver}/initramfs.img`
-    # /storage/splash/initrmafs.splash > /storage/splash/usr/lib/modules/${kver}/initramfs.img
-    ret, root, _commit = repo.read_commit(ostree.OSTREE_BASE_REF)
-    if not ret:
-        raise TorizonCoreBuilderError(f"Error couldn't reat commit: {ostree.OSTREE_BASE_REF}")
+    merged_initramfs_path = os.path.join(work_dir, dir_tree, INITRAMFS_FILENAME)
+    initramfs = Gio.File.new_for_path(merged_initramfs_path).create(Gio.FileCreateFlags.NONE, None)
 
-    sub_path = root.resolve_relative_path(os.path.join("usr/lib/modules",
-                                                       kernel_version, "initramfs.img"))
-
-    # create directory for storing finalized initramfs
-    os.makedirs(os.path.join(work_dir, "usr/lib/modules", kernel_version))
-
-    initramfs = Gio.File.new_for_path(
-        os.path.join(work_dir, "usr/lib/modules", kernel_version, "initramfs.img")
-        ).create(Gio.FileCreateFlags.NONE, None)
-
-    initramfs.splice(sub_path.read(None), Gio.OutputStreamSpliceFlags.CLOSE_SOURCE, None)
-    initramfs.splice(Gio.File.new_for_path(os.path.join(work_dir, splash_initramfs)).read(None),
+    # Add src_initramfs and splash image to final file
+    # src_initramfs > ${work_dir}/${dir_tree}/${INITRAMFS_FILENAME}
+    initramfs.splice(Gio.File.new_for_path(src_initramfs).read(None),
+                     Gio.OutputStreamSpliceFlags.CLOSE_SOURCE, None)
+    # ${work_dir}/initrmafs.splash > ${work_dir}/${dir_tree}/${INITRAMFS_FILENAME}
+    initramfs.splice(Gio.File.new_for_path(os.path.join(work_dir, SPLASH_INITRAMFS)).read(None),
                      Gio.OutputStreamSpliceFlags.CLOSE_SOURCE |
                      Gio.OutputStreamSpliceFlags.CLOSE_TARGET, None)
 
-    os.remove(os.path.join(work_dir, splash_initramfs))
+    os.remove(os.path.join(work_dir, SPLASH_INITRAMFS))
+    return merged_initramfs_path
