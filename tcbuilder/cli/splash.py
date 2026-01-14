@@ -22,10 +22,10 @@ MAX_INITRAMFS_FILE_SIZE = 32*1024*1024
 OSTREE_INITRAMFS_DEPLOY_PATH = kernel_be.OSTREE_KERNEL_DEPLOY_PATH
 
 
-def _apply_splash_fit(changes_dir, splash_src, storage_dir):
+def _apply_splash_fit(changes_dir, splash_src):
     """Apply the given splash screen into a changes directory (FIT kernel case)"""
 
-    kernel_path = kernel_be.copy_kernel_to_changes_dir(changes_dir, storage_dir)
+    kernel_path = kernel_be.copy_kernel_to_changes_dir(changes_dir)
 
     # Load kernel FIT into memory
     with open(kernel_path, "rb") as fhandle:
@@ -38,8 +38,8 @@ def _apply_splash_fit(changes_dir, splash_src, storage_dir):
     with open(tmp_initramfs_path, "wb") as fhandle:
         fhandle.write(initramfs_data)
 
-    updated_initramfs = splash_be.merge_splash_initramfs(changes_dir, splash_src,
-                                                         tmp_initramfs_path, storage_dir)
+    updated_initramfs = \
+        splash_be.merge_splash_initramfs(changes_dir, splash_src, tmp_initramfs_path)
     # Remove extracted initramfs binary
     os.remove(tmp_initramfs_path)
 
@@ -60,11 +60,12 @@ def _apply_splash_fit(changes_dir, splash_src, storage_dir):
     os.remove(updated_initramfs)
 
 
-def _apply_splash_non_fit(changes_dir, splash_src, storage_dir):
+def _apply_splash_non_fit(changes_dir, splash_src):
     """Apply the given splash screen into a changes directory (non-FIT case)"""
 
     # Get path of initramfs of current deployment inside sysroot
     # rootfs dir is assumed to be named 'sysroot'
+    storage_dir = get_storage_dir()
     sysroot_path = os.path.join(storage_dir, "sysroot")
     sysroot_obj = ostree.load_sysroot(sysroot_path)
     csum, _ = ostree.get_deployment_info_from_sysroot(sysroot_obj)
@@ -80,7 +81,7 @@ def _apply_splash_non_fit(changes_dir, splash_src, storage_dir):
     else:
         raise PathNotExistError("Initramfs not found in unpacked rootfs. Aborting.")
 
-    splash_be.merge_splash_initramfs(changes_dir, splash_src, initramfs_path, storage_dir)
+    splash_be.merge_splash_initramfs(changes_dir, splash_src, initramfs_path)
 
 
 def splash(splash_image):
@@ -91,23 +92,22 @@ def splash(splash_image):
         PathNotExistError: If could not find the splash image file.
     """
 
-    storage_dir = get_storage_dir()
     splash_abspath = os.path.abspath(splash_image)
     if not os.path.isfile(splash_abspath):
         raise PathNotExistError(f"Unable to find splash image {splash_image}")
 
-    unpacked_kernel_path = kernel_be.find_kernel_in_sysroot(storage_dir)
+    unpacked_kernel_path = kernel_be.find_kernel_in_sysroot()
     kernel_is_fit = is_file_type_fit(unpacked_kernel_path)
     log.debug(f"splash: kernel_is_fit={kernel_is_fit}")
 
     if kernel_is_fit:
          # FIT case: all changes go to the kernel-changes directory.
-        changes_dir = kernel_be.get_kernel_changes_dir(storage_dir)
-        _apply_splash_fit(changes_dir, splash_abspath, storage_dir)
+        changes_dir = kernel_be.get_kernel_changes_dir()
+        _apply_splash_fit(changes_dir, splash_abspath)
     else:
         # non-FIT case: changes go to the splash-changes directory.
-        changes_dir = splash_be.get_splash_changes_dir(storage_dir)
-        _apply_splash_non_fit(changes_dir, splash_abspath, storage_dir)
+        changes_dir = splash_be.get_splash_changes_dir()
+        _apply_splash_non_fit(changes_dir, splash_abspath)
 
     log.info("splash screen merged to initramfs")
 

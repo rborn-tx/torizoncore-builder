@@ -10,6 +10,7 @@ import shlex
 
 from gi.repository import Gio
 from tcbuilder.backend.kernel import get_kernel_subdir
+from tcbuilder.backend.common import get_storage_dir
 
 SPLASH_INITRAMFS = "initramfs.splash"
 INITRAMFS_FILENAME = "initramfs.img"
@@ -17,23 +18,24 @@ INITRAMFS_FILENAME = "initramfs.img"
 log = logging.getLogger("torizon." + __name__)
 
 
-def get_initramfs_subdir(storage_dir):
+def get_initramfs_subdir():
     """Get the versioned initramfs directory.
 
     In an OSTree deployment the initramfs is located in the same directory tree
     as the kernel, so we just return the kernel location.
     """
 
-    return get_kernel_subdir(storage_dir)
+    return get_kernel_subdir()
 
 
-def get_splash_changes_dir(storage_dir):
+def get_splash_changes_dir():
     """Returns the directory that contains external splash screen related changes."""
 
+    storage_dir = get_storage_dir()
     return os.path.join(storage_dir, "splash")
 
 
-def merge_splash_initramfs(work_dir, image, src_initramfs, storage_dir):
+def merge_splash_initramfs(work_dir, image, src_initramfs):
     """Create a initramfs with a splash screen and append it to a copy of src_initramfs
 
     The final initramfs binary will be created inside work_dir, following the
@@ -56,7 +58,7 @@ def merge_splash_initramfs(work_dir, image, src_initramfs, storage_dir):
     subprocess.check_output(create_initramfs_cmd, shell=True, stderr=subprocess.STDOUT)
 
     # Create final initramfs in ${work_dir}/${dir_tree}/${INITRAMFS_FILENAME}
-    dir_tree = get_initramfs_subdir(storage_dir)
+    dir_tree = get_initramfs_subdir()
     os.makedirs(os.path.join(work_dir, dir_tree), exist_ok=True)
 
     merged_initramfs_path = os.path.join(work_dir, dir_tree, INITRAMFS_FILENAME)

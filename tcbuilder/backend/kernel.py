@@ -328,7 +328,7 @@ def find_kernel_in_changes_dir(changes_dir, basename=None):
     return kernel_src_path
 
 
-def copy_kernel_to_changes_dir(changes_dir, basename=None):
+def copy_kernel_to_changes_dir(changes_dir, *, basename=None):
     """Copy kernel FIT image from sysroot to changes directory.
 
     Find kernel in sysroot and copy it to the appropriate subdirectory in the
